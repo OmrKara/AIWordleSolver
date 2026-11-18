@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#121213" />
+    <title>Wordle Entropy AI</title>
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <h1>WORDLE</h1>
+        <button class="new-game top-new-game" id="new-game-top" type="button">Yeni oyun</button>
+      </header>
+
+      <main class="game" aria-label="Wordle oyunu">
+        <section id="board" class="board" role="grid" aria-label="Altı satırlı tahmin tahtası"></section>
+
+        <section class="keyboard" aria-label="Ekran klavyesi">
+          <div class="key-row" data-row="qwertyuiop"></div>
+          <div class="key-row key-row-middle" data-row="asdfghjkl"></div>
+          <div class="key-row" data-row="zxcvbnm" data-special="true"></div>
+        </section>
+
+        <div class="actions">
+          <button class="ai-button" id="ai-guess" type="button" disabled>
+            <span class="ai-symbol" aria-hidden="true">✦</span>
+            <span id="ai-label">AI Tahmini</span>
+          </button>
+          <button class="new-game" id="new-game-bottom" type="button">Yeni oyun</button>
+        </div>
+        <p class="hint">AI öneriyi boş satıra yazar. Göndermek için Enter’a bas.</p>
+        <div id="status" class="status" role="status" aria-live="polite">Kelime listeleri yükleniyor…</div>
+      </main>
+    </div>
+  </body>
+</html>

@@ -2,7 +2,9 @@ import math
 import time
 import random
 import tkinter as tk
-from collections import defaultdict
+import queue
+import threading
+from collections import OrderedDict, defaultdict
 from pathlib import Path
 
 # -----------------------------
@@ -10,6 +12,7 @@ from pathlib import Path
 # -----------------------------
 WORD_LENGTH = 5
 MAX_GUESSES = 6
+MAX_FEEDBACK_CACHE_SIZE = 250_000
 
 COL_BG = "#121213"
 COL_TEXT = "#FFFFFF"
@@ -28,13 +31,12 @@ KB_ROWS = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]
 
 
 def load_words(file_name: str = "eng_dict.txt"):
-
     file_path = Path(__file__).resolve().parent / file_name
 
     if not file_path.exists():
         raise FileNotFoundError(
             f"Kelime dosyası bulunamadı: {file_path}\n"
-            f"Lütfen '{file_name}' dosyasını wordle_ui.py ile aynı klasöre koyun."
+            f"'{file_name}' dosyasını wordle.py ile aynı klasöre ekleyin."
         )
 
     content = file_path.read_text(encoding="utf-8")
@@ -55,7 +57,20 @@ def load_words(file_name: str = "eng_dict.txt"):
     return words
 
 
-WORDS = load_words()
+GUESS_WORDS = load_words("eng_dict.txt")
+ANSWER_WORDS = load_words("answers.txt")
+GUESS_WORD_SET = frozenset(GUESS_WORDS)
+ANSWER_WORD_SET = frozenset(ANSWER_WORDS)
+
+if not ANSWER_WORD_SET.issubset(GUESS_WORD_SET):
+    missing_answers = sorted(ANSWER_WORD_SET - GUESS_WORD_SET)
+    raise ValueError(
+        f"Cevap listesinde tahmin sözlüğünde bulunmayan kelimeler var: "
+        f"{', '.join(missing_answers[:10])}"
+    )
+
+if "SOARE" not in GUESS_WORD_SET:
+    raise ValueError("İlk tahmin olan SOARE, eng_dict.txt içinde bulunamadı.")
 
 
 def evaluate_guess(guess: str, answer: str):
@@ -106,11 +121,14 @@ class WordleUI:
         self.root.configure(bg=COL_BG)
         self.root.resizable(False, False)
 
-        if not WORDS:
-            raise ValueError("WORDS listesi boş. eng_dict.txt içeriğini kontrol edin.")
+        if not GUESS_WORDS or not ANSWER_WORDS:
+            raise ValueError("Kelime listeleri boş. eng_dict.txt ve answers.txt dosyalarını kontrol edin.")
 
         self._status_after_id = None
-        self.feedback_cache = {}
+        self.feedback_cache = OrderedDict()
+        self.ai_thinking = False
+        self._ai_result_queue = queue.Queue()
+        self._ai_poll_after_id = None
 
         self._build_topbar()
         self._build_grid()
@@ -128,15 +146,18 @@ class WordleUI:
         key = (guess, target)
         cached = self.feedback_cache.get(key)
         if cached is not None:
+            self.feedback_cache.move_to_end(key)
             return cached
 
         pattern = tuple(evaluate_guess(guess, target))
         self.feedback_cache[key] = pattern
+        if len(self.feedback_cache) > MAX_FEEDBACK_CACHE_SIZE:
+            self.feedback_cache.popitem(last=False)
         return pattern
 
     def _get_candidates(self):
         candidates = []
-        for word in WORDS:
+        for word in ANSWER_WORDS:
             is_valid = True
             for past_guess, past_states in self.history:
                 if self._feedback_pattern(past_guess, word) != tuple(past_states):
@@ -171,8 +192,9 @@ class WordleUI:
         best_entropy = -1.0
 
         # Deterministic olması için sıralı geziliyor.
-        # Guess uzayı olarak tüm sözlük kullanılıyor.
-        for guess in WORDS:
+        # Guess uzayı olarak geçerli tahminlerin tümü kullanılıyor.
+        candidate_set = set(candidates)
+        for guess in GUESS_WORDS:
             entropy = self._entropy_score(guess, candidates)
 
             if entropy > best_entropy:
@@ -184,8 +206,8 @@ class WordleUI:
                 if best_guess is None:
                     best_guess = guess
                 else:
-                    guess_in_candidates = guess in candidates
-                    best_in_candidates = best_guess in candidates
+                    guess_in_candidates = guess in candidate_set
+                    best_in_candidates = best_guess in candidate_set
                     if guess_in_candidates and not best_in_candidates:
                         best_guess = guess
                     elif guess_in_candidates == best_in_candidates and guess < best_guess:
@@ -194,31 +216,83 @@ class WordleUI:
         return best_guess
 
     def auto_guess(self):
-        if self.game_over:
+        if self.game_over or self.ai_thinking:
             return
 
         if any(self.grid_letters[self.current_row][c] for c in range(WORD_LENGTH)):
             self.set_status("Tahmin butonu için mevcut satır boş olmalı.", timeout_ms=2500)
             return
 
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         # İlk tahmin: hesaplama yapmadan SOARE
         if not self.history:
-            guess = "SOARE"
+            self._play_auto_guess("SOARE", 0.0)
+            return
         else:
             candidates = self._get_candidates()
             if not candidates:
                 self.set_status("Aday kelime kalmadı. Önceki bilgiler tutarsız olabilir.", timeout_ms=3000)
                 return
 
-            guess = self._best_entropy_guess(candidates)
-            if not guess:
-                self.set_status("Tahmin üretilemedi.", timeout_ms=2500)
+            if len(candidates) == 1:
+                self._play_auto_guess(candidates[0], time.perf_counter() - start_time)
                 return
 
-        end_time = time.time()
-        duration = end_time - start_time
+        self.ai_thinking = True
+        self._set_ai_controls_enabled(False)
+        self.set_status("Entropy tahmini hesaplanıyor...")
+        worker = threading.Thread(
+            target=self._calculate_auto_guess,
+            args=(candidates, start_time),
+            daemon=True,
+        )
+        worker.start()
+        self._schedule_ai_poll()
+
+    def _calculate_auto_guess(self, candidates, start_time):
+        try:
+            guess = self._best_entropy_guess(candidates)
+            self._ai_result_queue.put((guess, None, time.perf_counter() - start_time))
+        except Exception as exc:
+            self._ai_result_queue.put((None, exc, time.perf_counter() - start_time))
+
+    def _schedule_ai_poll(self):
+        self._ai_poll_after_id = self.root.after(50, self._poll_ai_result)
+
+    def _poll_ai_result(self):
+        self._ai_poll_after_id = None
+        if not self.ai_thinking:
+            return
+
+        try:
+            guess, error, duration = self._ai_result_queue.get_nowait()
+        except queue.Empty:
+            self._schedule_ai_poll()
+            return
+
+        self.ai_thinking = False
+        self._set_ai_controls_enabled(True)
+
+        if error is not None:
+            self.set_status(f"Tahmin hesaplanamadı: {error}", timeout_ms=3000)
+            return
+        if not guess:
+            self.set_status("Tahmin üretilemedi.", timeout_ms=2500)
+            return
+
+        self._play_auto_guess(guess, duration)
+
+    def _set_ai_controls_enabled(self, enabled: bool):
+        state = "normal" if enabled else "disabled"
+        self.btn_guess.config(state=state)
+        self.btn_new.config(state=state)
+        self.btn_enter.config(state=state)
+        self.btn_bk.config(state=state)
+        for button in self.key_buttons.values():
+            button.config(state=state)
+
+    def _play_auto_guess(self, guess: str, duration: float):
         print(f"[Tahmin Süresi] {guess}: {duration:.6f} saniye")
 
         for i, ch in enumerate(guess):
@@ -414,7 +488,9 @@ class WordleUI:
     # Game Loop
     # -----------------------------
     def new_game(self):
-        self.answer = random.choice(WORDS).upper()
+        if self.ai_thinking:
+            return
+        self.answer = random.choice(ANSWER_WORDS).upper()
 
         self.current_row = 0
         self.current_col = 0
@@ -458,7 +534,7 @@ class WordleUI:
     # Input handlers
     # -----------------------------
     def _on_physical_key(self, event):
-        if self.game_over:
+        if self.game_over or self.ai_thinking:
             return
 
         key = event.keysym.upper()
@@ -473,7 +549,7 @@ class WordleUI:
             self.on_letter(event.char.upper())
 
     def on_letter(self, ch: str):
-        if self.game_over:
+        if self.game_over or self.ai_thinking:
             return
         if self.current_row >= MAX_GUESSES or self.current_col >= WORD_LENGTH:
             return
@@ -485,7 +561,7 @@ class WordleUI:
         self.clear_status()
 
     def on_backspace(self):
-        if self.game_over:
+        if self.game_over or self.ai_thinking:
             return
         if self.current_col <= 0:
             return
@@ -495,7 +571,7 @@ class WordleUI:
         self.clear_status()
 
     def on_enter(self):
-        if self.game_over:
+        if self.game_over or self.ai_thinking:
             return
 
         if self.current_col < WORD_LENGTH:
@@ -503,7 +579,7 @@ class WordleUI:
             return
 
         guess = "".join(self.grid_letters[self.current_row]).upper()
-        if guess not in WORDS:
+        if guess not in GUESS_WORD_SET:
             self.set_status("Sözlükte yok.", timeout_ms=2000)
             return
 
