@@ -1,6 +1,6 @@
 # Wordle Entropy Solver
 
-Projede hem Tkinter masaüstü oyunu hem de tarayıcıda çalışan yerel Wordle sürümü bulunur. Web sürümündeki AI tahmini, projedeki Shannon entropy stratejisini kullanır; hesaplama tarayıcıdaki Web Worker'da yapılır ve dış API kullanılmaz.
+Projede hem Tkinter masaüstü oyunu hem de tarayıcıda çalışan yerel Wordle sürümü bulunur. Web sürümündeki AI tahmini, projedeki Shannon entropy stratejisini kullanır;
 
 ## Canlı site
 
@@ -35,6 +35,3 @@ Varsayılan olarak `441` tohumu ile cevap listesinden 100 tekrarlanabilir örnek
 
 `eng_dict.txt` geçerli tahminleri, `answers.txt` ise olası gizli cevapları içerir. Kaynak ve kapsam bilgisi [WORDLIST_SOURCES.md](WORDLIST_SOURCES.md) dosyasındadır. Cevap listesi özgün Wordle listesi olup canlı NYT günlük cevap akışı değildir.
 
-## Rapor metrikleri
-
-Ekli son rapordaki 100 oyun ve 3,87 ortalama tahmin ölçümü eski test yöntemine aittir. O test cevap ve tahmin havuzunu tek listede birleştirip alfabetik ilk 100 kelimeyi seçiyordu. Mevcut kod havuzları ayırır ve örneklemi tüm cevap listesine yayar; güncel performans değerleri için simülasyon yeniden çalıştırılmalıdır.
