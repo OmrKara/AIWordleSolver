@@ -10,6 +10,23 @@ python server.py
 
 Sunucu `http://127.0.0.1:8766` adresinde açılır ve varsayılan tarayıcıda siteyi gösterir. Durdurmak için sunucu penceresinde `Ctrl+C` kullan.
 
+## Render'da ücretsiz yayımlama
+
+Web oyunu sadece HTML, CSS, JavaScript, Web Worker ve iki statik kelime dosyasından oluşur. Bu nedenle Render'da uykuya geçen bir Python web servisi yerine ücretsiz statik site olarak yayımlanır. `render.yaml`, Render Blueprint ayarlarını içerir; build sırasında yalnızca web sitesi dosyalarını `dist/` klasörüne kopyalar. Masaüstü uygulaması, PDF raporlar ve simülasyon kodu yayımlanmaz.
+
+1. Değişiklikleri mevcut `origin` GitHub deposuna commit edip push et. Örnek komutlar:
+
+   ```powershell
+   git add .
+   git commit -m "Prepare Wordle web app for Render"
+   git push origin HEAD
+   ```
+
+2. Render Dashboard'da **New → Blueprint** seçip GitHub deposunu bağla. Render kökteki `render.yaml` dosyasını bulup `wordle-entropy-ai` statik sitesini yapılandırır.
+3. Blueprint değişikliklerini onaylayıp dağıtımı başlat. Render siteye bir `onrender.com` adresi verir; sonraki gönderimler otomatik dağıtılır.
+
+Render statik siteleri ücretsiz yayımlanır ve CDN üzerinden sunulur. Trafik ve build süreleri çalışma alanının dahil olan aylık kullanım miktarlarına sayılır. Ayrıntılar: [Static Sites](https://render.com/docs/static-sites), [Blueprint YAML](https://render.com/docs/blueprint-spec), [Deploy for Free](https://render.com/docs/free).
+
 Web oyunu altı tahmin hakkı, fiziksel ve ekran klavyesi, yeni oyun düğmesi ve AI tahmini içerir. AI düğmesi ilk turda projedeki sabit `SOARE` başlangıç kelimesini, sonraki turlarda en yüksek entropy değerine sahip kelimeyi boş satıra yazar. Öneriyi göndermek için Enter kullanılır. AI çalışırken oyun penceresi yanıt vermeye devam eder.
 
 ## Masaüstü oyununu çalıştırma

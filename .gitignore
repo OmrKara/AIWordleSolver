@@ -1,0 +1,3 @@
+__pycache__/
+dist/
+wordle_entropy_test_results.txt
